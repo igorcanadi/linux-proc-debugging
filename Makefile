@@ -1,8 +1,8 @@
 VERSION = 3
 PATCHLEVEL = 1
 SUBLEVEL = 0
-EXTRAVERSION = -rc8
-NAME = "Divemaster Edition"
+EXTRAVERSION = -hack2
+NAME = "Igor's h4x0r kernel"
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"

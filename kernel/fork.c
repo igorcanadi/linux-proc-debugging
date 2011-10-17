@@ -1302,6 +1302,9 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->pdeath_signal = 0;
 	p->exit_state = 0;
 
+	/* Initialize signal wait queue list */
+	INIT_LIST_HEAD(&p->sig_wait_list);
+
 	/*
 	 * Ok, make it visible to the rest of the system.
 	 * We dont wake it up yet.

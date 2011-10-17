@@ -1589,6 +1589,7 @@ ret:
  */
 bool do_notify_parent(struct task_struct *tsk, int sig)
 {
+	struct list_head *p;
 	struct siginfo info;
 	unsigned long flags;
 	struct sighand_struct *psig;
@@ -1663,6 +1664,14 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	if (valid_signal(sig) && sig)
 		__group_send_sig_info(sig, &info, tsk->parent);
 	__wake_up_parent(tsk, tsk->parent);
+
+	/* also notify all the proctraces */
+	list_for_each(p, &tsk->sig_wait_list) {
+		wake_up(&list_entry(
+			p, struct sig_wait_queue_struct,
+			list)->wait_queue);
+	}
+
 	spin_unlock_irqrestore(&psig->siglock, flags);
 
 	return autoreap;

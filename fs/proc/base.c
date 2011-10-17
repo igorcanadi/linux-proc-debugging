@@ -65,13 +65,14 @@
 #include <linux/mm.h>
 #include <linux/swap.h>
 #include <linux/rcupdate.h>
+#include <linux/wait.h>
+#include <linux/list.h>
 #include <linux/kallsyms.h>
 #include <linux/stacktrace.h>
 #include <linux/resource.h>
 #include <linux/module.h>
 #include <linux/mount.h>
 #include <linux/security.h>
-#include <linux/ptrace.h>
 #include <linux/tracehook.h>
 #include <linux/cgroup.h>
 #include <linux/cpuset.h>
@@ -209,16 +210,8 @@ static struct mm_struct *__check_mem_permission(struct task_struct *task)
 	if (task == current)
 		return mm;
 
-	/*
-	 * If current is actively ptrace'ing, and would also be
-	 * permitted to freshly attach with ptrace now, permit it.
-	 */
 	if (task_is_stopped_or_traced(task)) {
-		int match;
-		rcu_read_lock();
-		match = (ptrace_parent(task) == current);
-		rcu_read_unlock();
-		if (match && ptrace_may_access(task, PTRACE_MODE_ATTACH))
+		if (ptrace_may_access(task, PTRACE_MODE_ATTACH))
 			return mm;
 	}
 
@@ -964,6 +957,83 @@ static const struct file_operations proc_mem_operations = {
 	.read		= mem_read,
 	.write		= mem_write,
 	.open		= mem_open,
+};
+
+static int ctl_stop(struct task_struct *task)
+{
+	printk("PROCTRACE stopping %d task with %d\n", task->pid, current->pid);
+	send_sig_info(SIGSTOP, SEND_SIG_FORCED, task);
+	return 0;
+}
+
+static int ctl_start(struct task_struct *task) {
+	printk("PROCTRACE continuing %d task with %d\n", task->pid, current->pid);
+	wake_up_process(task);
+	return 0;
+}
+
+static int ctl_waitsignal(struct task_struct *task, int sigmask) {
+	struct sig_wait_queue_struct *sig_wait;
+	DEFINE_WAIT(wait);
+	int retval = 0;
+
+	printk("PROCTRACE waiting %d task with %d. sigmask %d\n", task->pid, current->pid, sigmask);
+
+	printk("Allocating new signal wait queue\n");
+	sig_wait = kmalloc(sizeof(struct sig_wait_queue_struct), GFP_KERNEL);
+	if (!sig_wait) {
+		retval = -ENOMEM;
+		goto done;
+	}
+	sig_wait->sigmask = sigmask;
+	init_waitqueue_head(&sig_wait->wait_queue);
+
+	write_lock(&tasklist_lock);
+	list_add(&sig_wait->list, &task->sig_wait_list);
+	write_unlock(&tasklist_lock);
+
+	prepare_to_wait(&sig_wait->wait_queue, &wait, TASK_INTERRUPTIBLE);
+	schedule();
+	finish_wait(&sig_wait->wait_queue, &wait);
+
+	write_lock(&tasklist_lock);
+	list_del(&sig_wait->list);
+	write_unlock(&tasklist_lock);
+
+	kfree(sig_wait);
+
+done:
+	return retval;
+}
+
+static ssize_t ctl_write(struct file * file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+	int tmp, i;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	if (strncmp(buf, "stop", 4) == 0) {
+		ctl_stop(task);
+	} else if (strncmp(buf, "start", 5) == 0) {
+		ctl_start(task);
+	} else if (strncmp(buf, "waitsignal", 10) == 0) {
+		tmp = 0;
+		for (i = 11; i < count; ++i) {
+			if (buf[i] == '1' || buf[i] == '0') {
+				tmp = tmp * 2 + (int)(buf[i]-'0');
+			} else if (buf[i] != ' ') {
+				break;
+			}
+		}
+
+		ctl_waitsignal(task, tmp);
+	}
+
+	return count;
+}
+
+static const struct file_operations proc_ctl_operations = {
+	.write		= ctl_write,
 };
 
 static ssize_t environ_read(struct file *file, char __user *buf,
@@ -2813,6 +2883,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("numa_maps",  S_IRUGO, proc_numa_maps_operations),
 #endif
 	REG("mem",        S_IRUSR|S_IWUSR, proc_mem_operations),
+	REG("ctl",        S_IWUSR, proc_ctl_operations),
 	LNK("cwd",        proc_cwd_link),
 	LNK("root",       proc_root_link),
 	LNK("exe",        proc_exe_link),

@@ -1217,6 +1217,14 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+struct sig_wait_queue_struct {
+	int sigmask;
+	/* actual wait queue -> can have only one element in it */
+	wait_queue_head_t wait_queue;
+	/* all other signal queues for this task */
+	struct list_head list;
+};
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
@@ -1334,6 +1342,8 @@ struct task_struct {
 	 */
 	struct list_head ptraced;
 	struct list_head ptrace_entry;
+
+	struct list_head sig_wait_list;
 
 	/* PID/PID hash table linkage. */
 	struct pid_link pids[PIDTYPE_MAX];
