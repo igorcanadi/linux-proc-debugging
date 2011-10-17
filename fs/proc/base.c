@@ -966,6 +966,42 @@ static const struct file_operations proc_mem_operations = {
 	.open		= mem_open,
 };
 
+static int ctl_stop(struct task_struct *task) 
+{
+	printk("PROCTRACE stopping %d task with %d\n", task->pid, current->pid);
+	return ptrace_attach(task, PTRACE_ATTACH, 0);
+}
+
+static int ctl_start(struct task_struct *task) {
+	printk("PROCTRACE continuing %d task with %d\n", task->pid, current->pid);
+	return ptrace_detach(task, 0);
+}
+
+static ssize_t ctl_write(struct file * file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+	char ctl_command_stop[5], ctl_command_start[6];
+
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	sprintf(ctl_command_stop, "stop");
+	sprintf(ctl_command_start, "start");
+	printk("PROCTRACE got %s from %d for %d\n", buf, current->pid, task->pid);
+	printk("PROCTRACE compare %s to %s -> %d\n", buf, ctl_command_stop, strncmp(buf, ctl_command_stop, 4));
+
+	if (strncmp(buf, ctl_command_stop, 4) == 0) {
+		ctl_stop(task);
+	} else if (strncmp(buf, ctl_command_start, 5) == 0) {
+		ctl_start(task);
+	}
+
+	return count;
+}
+
+static const struct file_operations proc_ctl_operations = {
+	.write		= ctl_write,
+};
+
 static ssize_t environ_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
 {
@@ -2813,6 +2849,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("numa_maps",  S_IRUGO, proc_numa_maps_operations),
 #endif
 	REG("mem",        S_IRUSR|S_IWUSR, proc_mem_operations),
+	REG("ctl",        S_IWUSR, proc_ctl_operations),
 	LNK("cwd",        proc_cwd_link),
 	LNK("root",       proc_root_link),
 	LNK("exe",        proc_exe_link),
