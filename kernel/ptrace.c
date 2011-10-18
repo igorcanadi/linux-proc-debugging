@@ -211,7 +211,7 @@ bool ptrace_may_access(struct task_struct *task, unsigned int mode)
 	return !err;
 }
 
-static int ptrace_attach(struct task_struct *task, long request,
+int ptrace_attach(struct task_struct *task, long request,
 			 unsigned long flags)
 {
 	bool seize = (request == PTRACE_SEIZE);
@@ -397,7 +397,7 @@ static bool __ptrace_detach(struct task_struct *tracer, struct task_struct *p)
 	return dead;
 }
 
-static int ptrace_detach(struct task_struct *child, unsigned int data)
+int ptrace_detach(struct task_struct *child, unsigned int data)
 {
 	bool dead = false;
 
