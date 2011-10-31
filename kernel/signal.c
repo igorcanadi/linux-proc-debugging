@@ -87,7 +87,7 @@ static int sig_ignored(struct task_struct *t, int sig, int from_ancestor_ns)
 	/*
 	 * Tracers may want to know about even ignored signals.
 	 */
-	return !t->ptrace;
+	return !t->ptrace && list_empty(&t->sig_wait_list);
 }
 
 /*
@@ -494,7 +494,7 @@ int unhandled_signal(struct task_struct *tsk, int sig)
 	if (handler != SIG_IGN && handler != SIG_DFL)
 		return 0;
 	/* if ptraced, let the tracer determine */
-	return !tsk->ptrace;
+	return !tsk->ptrace && list_empty(&tsk->sig_wait_list);
 }
 
 /*
@@ -982,7 +982,7 @@ static void complete_signal(int sig, struct task_struct *p, int group)
 	if (sig_fatal(p, sig) &&
 	    !(signal->flags & (SIGNAL_UNKILLABLE | SIGNAL_GROUP_EXIT)) &&
 	    !sigismember(&t->real_blocked, sig) &&
-	    (sig == SIGKILL || !t->ptrace)) {
+	    (sig == SIGKILL || (!t->ptrace && list_empty(&p->sig_wait_list)))) {
 		/*
 		 * This signal will be fatal to the whole group.
 		 */
@@ -1667,6 +1667,7 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 
 	/* also notify all the proctraces */
 	list_for_each(p, &tsk->sig_wait_list) {
+		printk("PROCTRACE budim frajera jer je child umro\n");
 		wake_up(&list_entry(
 			p, struct sig_wait_queue_struct,
 			list)->wait_queue);
@@ -2097,6 +2098,39 @@ static void do_jobctl_trap(void)
 	}
 }
 
+static int proctrace_signal(int signr) {
+	struct list_head *p;
+	struct sig_wait_queue_struct *sig_wait;
+	int retval = signr;
+
+	printk("PROCTRACE dobio signal %d\n", signr);
+
+	list_for_each(p, &current->sig_wait_list) {
+		printk("PROCTRACE provjeravam jedan proces\n");
+		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
+
+		if (sig_wait->sigmask & (1 << signr)) {
+			printk("PROCTRACE Sigmask je dobar, budim debuggera\n");
+			/* ignore the signal */
+			retval = 0;
+			/* wake up the debugger */
+			wake_up(&sig_wait->wait_queue);
+		}
+	}
+
+	if (!retval) {
+		printk("PROCTRACE Zaustavljam sebe\n");
+		spin_unlock_irq(&current->sighand->siglock);
+		// put the process to sleep
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule();
+		set_current_state(TASK_RUNNING);
+		spin_lock_irq(&current->sighand->siglock);
+	}
+
+	return retval;
+}
+
 static int ptrace_signal(int signr, siginfo_t *info,
 			 struct pt_regs *regs, void *cookie)
 {
@@ -2213,6 +2247,13 @@ relock:
 
 		if (!signr)
 			break; /* will return 0 */
+
+		if (unlikely(!list_empty(&current->sig_wait_list)) &&
+				signr != SIGKILL) {
+			signr = proctrace_signal(signr);
+			if (!signr)
+				continue;
+		}
 
 		if (unlikely(current->ptrace) && signr != SIGKILL) {
 			signr = ptrace_signal(signr, info,
