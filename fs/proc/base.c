@@ -972,7 +972,7 @@ static int ctl_start(struct task_struct *task) {
 	return 0;
 }
 
-static int ctl_waitsignal(struct task_struct *task, int sigmask) {
+static int ctl_waitsignal(struct task_struct *task, int sigmask, int start_the_task) {
 	struct sig_wait_queue_struct *sig_wait;
 	DEFINE_WAIT(wait);
 	int retval = 0;
@@ -992,6 +992,10 @@ static int ctl_waitsignal(struct task_struct *task, int sigmask) {
 	list_add(&sig_wait->list, &task->sig_wait_list);
 	write_unlock(&tasklist_lock);
 
+	if (start_the_task) {
+		wake_up_process(task);
+	}
+
 	prepare_to_wait(&sig_wait->wait_queue, &wait, TASK_INTERRUPTIBLE);
 	schedule();
 	finish_wait(&sig_wait->wait_queue, &wait);
@@ -1006,27 +1010,33 @@ done:
 	return retval;
 }
 
+static int ctl_get_sigmask(const char __user *buf, int count) {
+	int i, retval = 0;
+
+	for (i = 0; i < count; ++i) {
+		if (buf[i] == '1' || buf[i] == '0') {
+			retval = retval * 2 + (int)(buf[i]-'0');
+		} else if (buf[i] != ' ') {
+			break;
+		}
+	}
+
+	return retval;
+}
+
 static ssize_t ctl_write(struct file * file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	int tmp, i;
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 
-	if (strncmp(buf, "stop", 4) == 0) {
+	if (strncmp(buf, "waitsignal", 10) == 0) {
+		ctl_waitsignal(task, ctl_get_sigmask(buf + 11, count - 11), 0);
+	} else if (strncmp(buf, "startwaitsignal", 15) == 0) {
+		ctl_waitsignal(task, ctl_get_sigmask(buf + 16, count - 16), 1);
+	} else if (strncmp(buf, "stop", 4) == 0) {
 		ctl_stop(task);
 	} else if (strncmp(buf, "start", 5) == 0) {
 		ctl_start(task);
-	} else if (strncmp(buf, "waitsignal", 10) == 0) {
-		tmp = 0;
-		for (i = 11; i < count; ++i) {
-			if (buf[i] == '1' || buf[i] == '0') {
-				tmp = tmp * 2 + (int)(buf[i]-'0');
-			} else if (buf[i] != ' ') {
-				break;
-			}
-		}
-
-		ctl_waitsignal(task, tmp);
 	}
 
 	return count;
