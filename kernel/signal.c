@@ -1666,6 +1666,7 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	__wake_up_parent(tsk, tsk->parent);
 
 	/* also notify all the proctraces */
+	wake_up(&tsk->wq_for_stop);
 	list_for_each(p, &tsk->sig_wait_list) {
 		printk("PROCTRACE budim frajera jer je child umro\n");
 		wake_up(&list_entry(

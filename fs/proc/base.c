@@ -1024,7 +1024,24 @@ static int ctl_get_sigmask(const char __user *buf, int count) {
 	return retval;
 }
 
-static ssize_t ctl_write(struct file * file, const char __user *buf,
+
+static int ctl_wait(struct task_struct *task, int start_the_task) {
+	DEFINE_WAIT(wait);
+
+	printk("PROCTRACE waiting %d task with %d\n", task->pid, current->pid);
+
+	if (start_the_task) {
+		wake_up_process(task);
+	}
+
+	prepare_to_wait(&task->wq_for_stop, &wait, TASK_INTERRUPTIBLE);
+	schedule();
+	finish_wait(&task->wq_for_stop, &wait);
+
+	return 0;
+}
+
+static ssize_t ctl_write(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
@@ -1033,10 +1050,14 @@ static ssize_t ctl_write(struct file * file, const char __user *buf,
 		ctl_waitsignal(task, ctl_get_sigmask(buf + 11, count - 11), 0);
 	} else if (strncmp(buf, "startwaitsignal", 15) == 0) {
 		ctl_waitsignal(task, ctl_get_sigmask(buf + 16, count - 16), 1);
+	} else if (strncmp(buf, "startwait", 9) == 0) {
+		ctl_wait(task, 1);
 	} else if (strncmp(buf, "stop", 4) == 0) {
 		ctl_stop(task);
 	} else if (strncmp(buf, "start", 5) == 0) {
 		ctl_start(task);
+	} else if (strncmp(buf, "wait", 4) == 0) {
+		ctl_wait(task, 0);
 	}
 
 	return count;
