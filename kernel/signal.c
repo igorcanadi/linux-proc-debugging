@@ -1744,6 +1744,10 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	 * Even if SIGCHLD is not generated, we must wake up wait4 calls.
 	 */
 	__wake_up_parent(tsk, parent);
+	if (why == CLD_STOPPED) {
+		/* wake up all the proctraces waiting for stop */
+		wake_up(&tsk->wq_for_stop);
+	}
 	spin_unlock_irqrestore(&sighand->siglock, flags);
 }
 
