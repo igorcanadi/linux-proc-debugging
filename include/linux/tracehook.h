@@ -150,8 +150,12 @@ static inline void tracehook_signal_handler(int sig, siginfo_t *info,
 					    const struct k_sigaction *ka,
 					    struct pt_regs *regs, int stepping)
 {
-	if (stepping)
-		ptrace_notify(SIGTRAP);
+	if (stepping) {
+		if (current->ptrace)
+			ptrace_notify(SIGTRAP);
+		if (!list_empty(&current->sig_wait_list))
+			proctrace_notify(SIGTRAP);
+	}
 }
 
 #ifdef TIF_NOTIFY_RESUME

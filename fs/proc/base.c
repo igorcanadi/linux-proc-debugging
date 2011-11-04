@@ -1066,6 +1066,12 @@ static ssize_t ctl_write(struct file *file, const char __user *buf,
 		ctl_start(task);
 	} else if (strncmp(buf, "wait", 4) == 0) {
 		ctl_wait(task, 0);
+	} else if (strncmp(buf, "step", 4) == 0) {
+		if (unlikely(!arch_has_block_step()))
+			return -EIO;
+		user_enable_block_step(task);
+		ctl_waitsignal(task, 1 << SIGTRAP, 1);
+		user_disable_single_step(task);
 	}
 
 	return count;
