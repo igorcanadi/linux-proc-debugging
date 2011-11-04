@@ -2103,6 +2103,9 @@ static void do_jobctl_trap(void)
 	}
 }
 
+/*
+ * Called with sighand->siglock held
+ */
 static int proctrace_signal(int signr) {
 	struct list_head *p;
 	struct sig_wait_queue_struct *sig_wait;
@@ -2134,6 +2137,12 @@ static int proctrace_signal(int signr) {
 	}
 
 	return retval;
+}
+
+void proctrace_notify(int signal) {
+	spin_lock_irq(&current->sighand->siglock);
+	proctrace_signal(signal);
+	spin_unlock_irq(&current->sighand->siglock);
 }
 
 static int ptrace_signal(int signr, siginfo_t *info,

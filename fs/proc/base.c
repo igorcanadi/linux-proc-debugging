@@ -1050,6 +1050,14 @@ static ssize_t ctl_write(struct file *file, const char __user *buf,
 		ctl_waitsignal(task, ctl_get_sigmask(buf + 11, count - 11), 0);
 	} else if (strncmp(buf, "startwaitsignal", 15) == 0) {
 		ctl_waitsignal(task, ctl_get_sigmask(buf + 16, count - 16), 1);
+	} else if (strncmp(buf, "waitsyscall", 9) == 0) {
+		set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+		ctl_waitsignal(task, 1 << SIGTRAP, 0);
+		clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+	} else if (strncmp(buf, "startwaitsyscall", 9) == 0) {
+		set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+		ctl_waitsignal(task, 1 << SIGTRAP, 1);
+		clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
 	} else if (strncmp(buf, "startwait", 9) == 0) {
 		ctl_wait(task, 1);
 	} else if (strncmp(buf, "stop", 4) == 0) {
