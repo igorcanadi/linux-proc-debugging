@@ -3,6 +3,17 @@
 /* ptrace.h */
 /* structs and defines to help the user use the ptrace system call. */
 
+/* stealing some space for proctrace */
+#define PROCTRACE_START_TASK    0
+#define PROCTRACE_SYSTEM_CALLS  33
+#define PROCTRACE_FORK          34
+#define PROCTRACE_VFORK         35
+#define PROCTRACE_CLONE         36
+#define PROCTRACE_EXEC          37
+#define PROCTRACE_VFORK_DONE    38
+#define PROCTRACE_EXIT          39
+
+
 /* has the defines to get at the registers. */
 
 #define PTRACE_TRACEME		   0

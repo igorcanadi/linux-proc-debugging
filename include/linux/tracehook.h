@@ -72,7 +72,7 @@ static inline void ptrace_report_syscall(struct pt_regs *regs)
 		}
 	}
 	if (!list_empty(&current->sig_wait_list)) {
-		proctrace_notify(SIGTRAP);
+		proctrace_notify(PROCTRACE_SYSTEM_CALLS);
 	}
 }
 

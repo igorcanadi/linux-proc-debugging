@@ -1590,6 +1590,7 @@ ret:
 bool do_notify_parent(struct task_struct *tsk, int sig)
 {
 	struct list_head *p;
+	struct sig_wait_queue_struct *sig_wait;
 	struct siginfo info;
 	unsigned long flags;
 	struct sighand_struct *psig;
@@ -1666,12 +1667,10 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 	__wake_up_parent(tsk, tsk->parent);
 
 	/* also notify all the proctraces */
-	wake_up(&tsk->wq_for_stop);
 	list_for_each(p, &tsk->sig_wait_list) {
 		printk("PROCTRACE budim frajera jer je child umro\n");
-		wake_up(&list_entry(
-			p, struct sig_wait_queue_struct,
-			list)->wait_queue);
+		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
+		wake_up(&sig_wait->wait_queue);
 	}
 
 	spin_unlock_irqrestore(&psig->siglock, flags);
@@ -1699,6 +1698,8 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	unsigned long flags;
 	struct task_struct *parent;
 	struct sighand_struct *sighand;
+	struct sig_wait_queue_struct *sig_wait;
+	struct list_head *p;
 
 	if (for_ptracer) {
 		parent = tsk->parent;
@@ -1745,8 +1746,15 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 	 */
 	__wake_up_parent(tsk, parent);
 	if (why == CLD_STOPPED) {
+		printk("PROCTRACE child je stao\n");
 		/* wake up all the proctraces waiting for stop */
-		wake_up(&tsk->wq_for_stop);
+		list_for_each(p, &tsk->sig_wait_list) {
+			sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
+			if (sig_wait->sigmask == 0) {
+				printk("PROCTRACE budim frajera jer je child stao\n");
+				wake_up(&sig_wait->wait_queue);
+			}
+		}
 	}
 	spin_unlock_irqrestore(&sighand->siglock, flags);
 }
@@ -2117,7 +2125,7 @@ static int proctrace_signal(int signr) {
 		printk("PROCTRACE provjeravam jedan proces\n");
 		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
 
-		if (sig_wait->sigmask & (1 << signr)) {
+		if (sig_wait->sigmask & (1ULL << signr)) {
 			printk("PROCTRACE Sigmask je dobar, budim debuggera\n");
 			/* ignore the signal */
 			retval = 0;

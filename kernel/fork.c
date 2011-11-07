@@ -1303,7 +1303,6 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 	p->exit_state = 0;
 
 	/* Initialize proctrace data structures */
-	init_waitqueue_head(&p->wq_for_stop);
 	INIT_LIST_HEAD(&p->sig_wait_list);
 
 	/*

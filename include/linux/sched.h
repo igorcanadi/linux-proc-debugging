@@ -1218,7 +1218,7 @@ enum perf_event_task_context {
 };
 
 struct sig_wait_queue_struct {
-	int sigmask;
+	unsigned long long sigmask;
 	/* actual wait queue -> can have only one element in it */
 	wait_queue_head_t wait_queue;
 	/* all other signal queues for this task */
@@ -1343,8 +1343,6 @@ struct task_struct {
 	struct list_head ptraced;
 	struct list_head ptrace_entry;
 
-	/* Debuggers waiting for child to stop or exit */
-	wait_queue_head_t wq_for_stop;
 	/* Debuggers waiting for child to get a signal or exit */
 	struct list_head sig_wait_list;
 

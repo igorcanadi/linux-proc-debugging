@@ -78,6 +78,7 @@
 #include <linux/cpuset.h>
 #include <linux/audit.h>
 #include <linux/poll.h>
+#include <linux/ptrace.h>
 #include <linux/nsproxy.h>
 #include <linux/oom.h>
 #include <linux/elf.h>
@@ -959,6 +960,74 @@ static const struct file_operations proc_mem_operations = {
 	.open		= mem_open,
 };
 
+static int wait_waitsignal(struct task_struct *task, unsigned long long mask) {
+	struct sig_wait_queue_struct *sig_wait;
+	DEFINE_WAIT(wait);
+	int retval = 0;
+
+	printk("PROCTRACE waiting %d task with %d. mask %lld\n", task->pid, current->pid, mask);
+
+	printk("Allocating new signal wait queue\n");
+	sig_wait = kmalloc(sizeof(struct sig_wait_queue_struct), GFP_KERNEL);
+	if (!sig_wait) {
+		retval = -ENOMEM;
+		goto done;
+	}
+	sig_wait->sigmask = mask;
+	init_waitqueue_head(&sig_wait->wait_queue);
+
+	write_lock(&tasklist_lock);
+	list_add(&sig_wait->list, &task->sig_wait_list);
+	write_unlock(&tasklist_lock);
+
+	if (mask & (1ULL << PROCTRACE_SYSTEM_CALLS)) {
+		set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+	}
+
+	if (mask & (1ULL << PROCTRACE_START_TASK)) {
+		wake_up_process(task);
+		// we don't need this flag anymore
+		mask ^= 1ULL << PROCTRACE_START_TASK;
+	}
+
+	prepare_to_wait(&sig_wait->wait_queue, &wait, TASK_INTERRUPTIBLE);
+	schedule();
+	finish_wait(&sig_wait->wait_queue, &wait);
+
+	if (mask & (1ULL << PROCTRACE_SYSTEM_CALLS)) {
+		clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
+	}
+
+	write_lock(&tasklist_lock);
+	list_del(&sig_wait->list);
+	write_unlock(&tasklist_lock);
+
+	kfree(sig_wait);
+
+done:
+	return retval;
+}
+
+static ssize_t wait_write(struct file *file, const char __user *buf,
+			 size_t count, loff_t *ppos) {
+	unsigned long long mask = 0;
+	int i = 0;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	for (i = 0; i < count && i < 8; ++i) {
+		mask <<= 8;
+		mask |= buf[i];
+	}
+
+	wait_waitsignal(task, mask);
+
+	return count;
+}
+
+static const struct file_operations proc_wait_operations = {
+	.write		= wait_write,
+};
+
 static int ctl_stop(struct task_struct *task)
 {
 	printk("PROCTRACE stopping %d task with %d\n", task->pid, current->pid);
@@ -972,105 +1041,20 @@ static int ctl_start(struct task_struct *task) {
 	return 0;
 }
 
-static int ctl_waitsignal(struct task_struct *task, int sigmask, int start_the_task) {
-	struct sig_wait_queue_struct *sig_wait;
-	DEFINE_WAIT(wait);
-	int retval = 0;
-
-	printk("PROCTRACE waiting %d task with %d. sigmask %d\n", task->pid, current->pid, sigmask);
-
-	printk("Allocating new signal wait queue\n");
-	sig_wait = kmalloc(sizeof(struct sig_wait_queue_struct), GFP_KERNEL);
-	if (!sig_wait) {
-		retval = -ENOMEM;
-		goto done;
-	}
-	sig_wait->sigmask = sigmask;
-	init_waitqueue_head(&sig_wait->wait_queue);
-
-	write_lock(&tasklist_lock);
-	list_add(&sig_wait->list, &task->sig_wait_list);
-	write_unlock(&tasklist_lock);
-
-	if (start_the_task) {
-		wake_up_process(task);
-	}
-
-	prepare_to_wait(&sig_wait->wait_queue, &wait, TASK_INTERRUPTIBLE);
-	schedule();
-	finish_wait(&sig_wait->wait_queue, &wait);
-
-	write_lock(&tasklist_lock);
-	list_del(&sig_wait->list);
-	write_unlock(&tasklist_lock);
-
-	kfree(sig_wait);
-
-done:
-	return retval;
-}
-
-static int ctl_get_sigmask(const char __user *buf, int count) {
-	int i, retval = 0;
-
-	for (i = 0; i < count; ++i) {
-		if (buf[i] == '1' || buf[i] == '0') {
-			retval = retval * 2 + (int)(buf[i]-'0');
-		} else if (buf[i] != ' ') {
-			break;
-		}
-	}
-
-	return retval;
-}
-
-
-static int ctl_wait(struct task_struct *task, int start_the_task) {
-	DEFINE_WAIT(wait);
-
-	printk("PROCTRACE waiting %d task with %d\n", task->pid, current->pid);
-
-	if (start_the_task) {
-		wake_up_process(task);
-	}
-
-	prepare_to_wait(&task->wq_for_stop, &wait, TASK_INTERRUPTIBLE);
-	schedule();
-	finish_wait(&task->wq_for_stop, &wait);
-
-	return 0;
-}
-
 static ssize_t ctl_write(struct file *file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 
-	if (strncmp(buf, "waitsignal", 10) == 0) {
-		ctl_waitsignal(task, ctl_get_sigmask(buf + 11, count - 11), 0);
-	} else if (strncmp(buf, "startwaitsignal", 15) == 0) {
-		ctl_waitsignal(task, ctl_get_sigmask(buf + 16, count - 16), 1);
-	} else if (strncmp(buf, "waitsyscall", 9) == 0) {
-		set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
-		ctl_waitsignal(task, 1 << SIGTRAP, 0);
-		clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
-	} else if (strncmp(buf, "startwaitsyscall", 9) == 0) {
-		set_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
-		ctl_waitsignal(task, 1 << SIGTRAP, 1);
-		clear_tsk_thread_flag(task, TIF_SYSCALL_TRACE);
-	} else if (strncmp(buf, "startwait", 9) == 0) {
-		ctl_wait(task, 1);
-	} else if (strncmp(buf, "stop", 4) == 0) {
+	if (strncmp(buf, "stop", 4) == 0) {
 		ctl_stop(task);
 	} else if (strncmp(buf, "start", 5) == 0) {
 		ctl_start(task);
-	} else if (strncmp(buf, "wait", 4) == 0) {
-		ctl_wait(task, 0);
 	} else if (strncmp(buf, "step", 4) == 0) {
 		if (unlikely(!arch_has_block_step()))
 			return -EIO;
 		user_enable_block_step(task);
-		ctl_waitsignal(task, 1 << SIGTRAP, 1);
+		wait_waitsignal(task, (1ULL << SIGTRAP) | (1ULL << PROCTRACE_START_TASK));
 		user_disable_single_step(task);
 	}
 
@@ -1080,6 +1064,7 @@ static ssize_t ctl_write(struct file *file, const char __user *buf,
 static const struct file_operations proc_ctl_operations = {
 	.write		= ctl_write,
 };
+
 
 static ssize_t environ_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
@@ -2929,6 +2914,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 #endif
 	REG("mem",        S_IRUSR|S_IWUSR, proc_mem_operations),
 	REG("ctl",        S_IWUSR, proc_ctl_operations),
+	REG("wait",       S_IWUSR, proc_wait_operations),
 	LNK("cwd",        proc_cwd_link),
 	LNK("root",       proc_root_link),
 	LNK("exe",        proc_exe_link),
