@@ -52,7 +52,6 @@
 #include <linux/errno.h>
 #include <linux/time.h>
 #include <linux/proc_fs.h>
-#include <linux/signal.h>
 #include <linux/stat.h>
 #include <linux/task_io_accounting_ops.h>
 #include <linux/init.h>
@@ -1069,12 +1068,18 @@ static const struct file_operations proc_ctl_operations = {
 
 static ssize_t eventmessage_read(struct file *file, char __user *buf,
 				size_t count, loff_t *ppos) {
+	int length;
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 
-	if (count < sizeof(task->ptrace_message))
-		return -EIO;
+	length = -ESRCH;
+	if (!task)
+		goto out_no_task;
 
-	return put_user(task->ptrace_message, buf);
+	length = simple_read_from_buffer(buf, count, ppos,
+			(char *)&task->ptrace_message, sizeof(task->ptrace_message));
+
+out_no_task:
+	return length;
 }
 
 static const struct file_operations proc_eventmessage_operations = {
@@ -1086,27 +1091,30 @@ static ssize_t last_siginfo_read(struct file *file, char __user *buf,
 				size_t count, loff_t *ppos) {
 	unsigned long flags;
 	siginfo_t info;
-	int error = -ESRCH;
+	int length;
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 
-	if (count < sizeof(siginfo_t) && lock_task_sighand(task, &flags)) {
-		error = -EINVAL;
+	length = -ESRCH;
+	if (!task)
+		goto out_no_task;
+	length = -EINVAL;
+
+	if (lock_task_sighand(task, &flags)) {
+		length = 0;
 		if (likely(task->last_siginfo != NULL)) {
 			info = *task->last_siginfo;
-			error = 0;
+			length = sizeof(info);
 		}
 
 		unlock_task_sighand(task, &flags);
 	}
 
-	if (!error) {
-		error = copy_siginfo_to_user((siginfo_t __user *) buf, &info);
-	}
+	if (length >= 0)
+		length = simple_read_from_buffer(buf, count,
+				ppos, (char *)&info, length);
 
-	if (!error)
-		error = sizeof(siginfo_t);
-
-	return error;
+out_no_task:
+	return length;
 }
 
 static const struct file_operations proc_last_siginfo_operations = {

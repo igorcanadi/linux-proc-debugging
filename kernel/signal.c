@@ -2144,6 +2144,7 @@ static int proctrace_signal(int signr, siginfo_t *info) {
 		set_current_state(TASK_RUNNING);
 		spin_lock_irq(&current->sighand->siglock);
 		current->last_siginfo = NULL;
+		printk("PROCTRACE Ubijam last_siginfo\n");
 	}
 
 	return retval;
