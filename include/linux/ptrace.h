@@ -196,8 +196,10 @@ static inline bool proctrace_event_enabled(struct task_struct *task, int event)
 
 static inline void proctrace_send_event(int event, unsigned int message)
 {
-	current->ptrace_message = message;
-	proctrace_notify(event);
+	if (unlikely(!list_empty(&current->sig_wait_list))) {
+		current->ptrace_message = message;
+		proctrace_notify(event);
+	}
 }
 
 /**
