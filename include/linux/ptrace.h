@@ -194,29 +194,10 @@ static inline bool proctrace_event_enabled(struct task_struct *task, int event)
 	return 0;
 }
 
-static inline bool proctrace_send_event(int event, unsigned int message)
+static inline void proctrace_send_event(int event, unsigned int message)
 {
-	struct list_head *p;
-	struct sig_wait_queue_struct *sig_wait;
-	list_for_each(p, &current->sig_wait_list) {
-		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
-		if (sig_wait->sigmask & (1ULL << event)) {
-			current->ptrace_message = message;
-			wake_up(&sig_wait->wait_queue);
-
-			// other guys do that in copy_process
-			if (event == PROCTRACE_EXIT) {
-				set_current_state(TASK_INTERRUPTIBLE);
-				schedule();
-				set_current_state(TASK_RUNNING);
-			}
-			if (event == PROCTRACE_EXEC) {
-				send_sig_info(SIGSTOP, SEND_SIG_FORCED, current);
-			}
-		}
-	}
-
-	return 0;
+	current->ptrace_message = message;
+	proctrace_notify(event);
 }
 
 /**
