@@ -203,6 +203,16 @@ static inline bool proctrace_send_event(int event, unsigned int message)
 		if (sig_wait->sigmask & (1ULL << event)) {
 			current->ptrace_message = message;
 			wake_up(&sig_wait->wait_queue);
+
+			// other guys do that in copy_process
+			if (event == PROCTRACE_EXIT) {
+				set_current_state(TASK_INTERRUPTIBLE);
+				schedule();
+				set_current_state(TASK_RUNNING);
+			}
+			if (event == PROCTRACE_EXEC) {
+				send_sig_info(SIGSTOP, SEND_SIG_FORCED, current);
+			}
 		}
 	}
 

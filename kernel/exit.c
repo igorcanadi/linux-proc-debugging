@@ -914,6 +914,7 @@ NORET_TYPE void do_exit(long code)
 	set_fs(USER_DS);
 
 	ptrace_event(PTRACE_EVENT_EXIT, code);
+	proctrace_send_event(PROCTRACE_EXIT, code);
 
 	validate_creds_for_do_exit(tsk);
 
