@@ -180,6 +180,35 @@ static inline struct task_struct *ptrace_parent(struct task_struct *task)
 	return NULL;
 }
 
+static inline bool proctrace_event_enabled(struct task_struct *task, int event)
+{
+	struct list_head *p;
+	struct sig_wait_queue_struct *sig_wait;
+	list_for_each(p, &task->sig_wait_list) {
+		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
+		if (sig_wait->sigmask & (1ULL << event)) {
+			return 1;
+		}
+	}
+
+	return 0;
+}
+
+static inline bool proctrace_send_event(int event, unsigned int message)
+{
+	struct list_head *p;
+	struct sig_wait_queue_struct *sig_wait;
+	list_for_each(p, &current->sig_wait_list) {
+		sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
+		if (sig_wait->sigmask & (1ULL << event)) {
+			current->ptrace_message = message;
+			wake_up(&sig_wait->wait_queue);
+		}
+	}
+
+	return 0;
+}
+
 /**
  * ptrace_event_enabled - test whether a ptrace event is enabled
  * @task: ptracee of interest

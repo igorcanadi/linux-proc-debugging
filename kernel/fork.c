@@ -1053,7 +1053,8 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 					unsigned long stack_size,
 					int __user *child_tidptr,
 					struct pid *pid,
-					int trace)
+					int trace,
+					int proctrace)
 {
 	int retval;
 	struct task_struct *p;
@@ -1358,6 +1359,11 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	if (likely(p->pid)) {
 		ptrace_init_task(p, (clone_flags & CLONE_PTRACE) || trace);
+		if (proctrace && proctrace_event_enabled(current, proctrace)) {
+			// stop it
+			sigaddset(&p->pending.signal, SIGSTOP);
+			set_tsk_thread_flag(p, TIF_SIGPENDING);
+		}
 
 		if (thread_group_leader(p)) {
 			if (is_child_reaper(pid))
@@ -1456,7 +1462,7 @@ struct task_struct * __cpuinit fork_idle(int cpu)
 	struct pt_regs regs;
 
 	task = copy_process(CLONE_VM, 0, idle_regs(&regs), 0, NULL,
-			    &init_struct_pid, 0);
+			    &init_struct_pid, 0, 0);
 	if (!IS_ERR(task)) {
 		init_idle_pids(task->pids);
 		init_idle(task, cpu);
@@ -1480,6 +1486,7 @@ long do_fork(unsigned long clone_flags,
 {
 	struct task_struct *p;
 	int trace = 0;
+	int proctrace_event = 0;
 	long nr;
 
 	/*
@@ -1504,19 +1511,27 @@ long do_fork(unsigned long clone_flags,
 	 * for the type of forking is enabled.
 	 */
 	if (likely(user_mode(regs)) && !(clone_flags & CLONE_UNTRACED)) {
-		if (clone_flags & CLONE_VFORK)
+		if (clone_flags & CLONE_VFORK) {
 			trace = PTRACE_EVENT_VFORK;
-		else if ((clone_flags & CSIGNAL) != SIGCHLD)
+			proctrace_event = PROCTRACE_VFORK;
+		} else if ((clone_flags & CSIGNAL) != SIGCHLD) {
 			trace = PTRACE_EVENT_CLONE;
-		else
+			proctrace_event = PROCTRACE_CLONE;
+		} else {
 			trace = PTRACE_EVENT_FORK;
+			proctrace_event = PROCTRACE_FORK;
+		}
 
 		if (likely(!ptrace_event_enabled(current, trace)))
 			trace = 0;
+
+		if (likely(!proctrace_event_enabled(current, proctrace_event)))
+			proctrace_event = 0;
+
 	}
 
 	p = copy_process(clone_flags, stack_start, regs, stack_size,
-			 child_tidptr, NULL, trace);
+			 child_tidptr, NULL, trace, proctrace_event);
 	/*
 	 * Do this prior waking up the new thread - the thread pointer
 	 * might get invalid after that point, if the thread exits quickly.
@@ -1552,11 +1567,15 @@ long do_fork(unsigned long clone_flags,
 		if (unlikely(trace))
 			ptrace_event(trace, nr);
 
+		if (unlikely(proctrace_event))
+			proctrace_send_event(proctrace_event, nr);
+
 		if (clone_flags & CLONE_VFORK) {
 			freezer_do_not_count();
 			wait_for_completion(&vfork);
 			freezer_count();
 			ptrace_event(PTRACE_EVENT_VFORK_DONE, nr);
+			proctrace_send_event(PROCTRACE_VFORK_DONE, nr);
 		}
 	} else {
 		nr = PTR_ERR(p);
