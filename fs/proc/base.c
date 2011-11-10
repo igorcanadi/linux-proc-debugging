@@ -52,6 +52,7 @@
 #include <linux/errno.h>
 #include <linux/time.h>
 #include <linux/proc_fs.h>
+#include <linux/signal.h>
 #include <linux/stat.h>
 #include <linux/task_io_accounting_ops.h>
 #include <linux/init.h>
@@ -1065,6 +1066,52 @@ static const struct file_operations proc_ctl_operations = {
 	.write		= ctl_write,
 };
 
+
+static ssize_t eventmessage_read(struct file *file, char __user *buf,
+				size_t count, loff_t *ppos) {
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	if (count < sizeof(task->ptrace_message))
+		return -EIO;
+
+	return put_user(task->ptrace_message, buf);
+}
+
+static const struct file_operations proc_eventmessage_operations = {
+	.read		= eventmessage_read,
+};
+
+
+static ssize_t last_siginfo_read(struct file *file, char __user *buf,
+				size_t count, loff_t *ppos) {
+	unsigned long flags;
+	siginfo_t info;
+	int error = -ESRCH;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	if (count < sizeof(siginfo_t) && lock_task_sighand(task, &flags)) {
+		error = -EINVAL;
+		if (likely(task->last_siginfo != NULL)) {
+			info = *task->last_siginfo;
+			error = 0;
+		}
+
+		unlock_task_sighand(task, &flags);
+	}
+
+	if (!error) {
+		error = copy_siginfo_to_user((siginfo_t __user *) buf, &info);
+	}
+
+	if (!error)
+		error = sizeof(siginfo_t);
+
+	return error;
+}
+
+static const struct file_operations proc_last_siginfo_operations = {
+	.read		= last_siginfo_read,
+};
 
 static ssize_t environ_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
@@ -2915,6 +2962,8 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("mem",        S_IRUSR|S_IWUSR, proc_mem_operations),
 	REG("ctl",        S_IWUSR, proc_ctl_operations),
 	REG("wait",       S_IWUSR, proc_wait_operations),
+	REG("eventmessage", S_IRUSR, proc_eventmessage_operations),
+	REG("last_siginfo", S_IRUSR, proc_last_siginfo_operations),
 	LNK("cwd",        proc_cwd_link),
 	LNK("root",       proc_root_link),
 	LNK("exe",        proc_exe_link),

@@ -2114,7 +2114,7 @@ static void do_jobctl_trap(void)
 /*
  * Called with sighand->siglock held
  */
-static int proctrace_signal(int signr) {
+static int proctrace_signal(int signr, siginfo_t *info) {
 	struct list_head *p;
 	struct sig_wait_queue_struct *sig_wait;
 	int retval = signr;
@@ -2135,21 +2135,31 @@ static int proctrace_signal(int signr) {
 	}
 
 	if (!retval) {
-		printk("PROCTRACE Zaustavljam sebe\n");
+		printk("PROCTRACE Zaustavljam sebe i postavljam last_siginfo\n");
+		current->last_siginfo = info;
 		spin_unlock_irq(&current->sighand->siglock);
 		// put the process to sleep
 		set_current_state(TASK_INTERRUPTIBLE);
 		schedule();
 		set_current_state(TASK_RUNNING);
 		spin_lock_irq(&current->sighand->siglock);
+		current->last_siginfo = NULL;
 	}
 
 	return retval;
 }
 
 void proctrace_notify(int signal) {
+	siginfo_t info;
+
+	memset(&info, 0, sizeof info);
+	info.si_signo = signal;
+	info.si_code = 0;
+	info.si_pid = task_pid_vnr(current);
+	info.si_uid = current_uid();
+
 	spin_lock_irq(&current->sighand->siglock);
-	proctrace_signal(signal);
+	proctrace_signal(signal, &info);
 	spin_unlock_irq(&current->sighand->siglock);
 }
 
@@ -2272,7 +2282,7 @@ relock:
 
 		if (unlikely(!list_empty(&current->sig_wait_list)) &&
 				signr != SIGKILL) {
-			signr = proctrace_signal(signr);
+			signr = proctrace_signal(signr, info);
 			if (!signr)
 				continue;
 		}
