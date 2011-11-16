@@ -808,6 +808,98 @@ static const struct file_operations proc_single_file_operations = {
 	.release	= single_release,
 };
 
+
+
+static int reg_open(struct inode* inode, struct file* file)
+{
+	file->private_data = (void*)((long)current->self_exec_id);
+	/* OK to pass negative loff_t, we can catch out-of-range */
+	file->f_mode |= FMODE_UNSIGNED_OFFSET;
+	return 0;
+}
+
+
+static int ureg_open(struct inode* inode, struct file* file)
+{
+	file->private_data = (void*)((long)current->self_exec_id);
+	/* OK to pass negative loff_t, we can catch out-of-range */
+	file->f_mode |= FMODE_UNSIGNED_OFFSET;
+	return 0;
+}
+
+
+static ssize_t reg_read(struct file * file, char __user * buf,
+			size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	ptrace_request(task, PTRACE_GETREGSET, 0, 
+			(unsigned long) buf);
+	return 0;
+}
+
+static ssize_t ureg_read(struct file * file, char __user * buf,
+			size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	
+	long word = arch_ptrace(task, PTRACE_PEEKUSR, (unsigned long) *ppos, 
+			NULL);
+	/* word may = -1, if so, this could be an error, but we cannot know */
+	long *p = (long*) buf;
+	*p = word;
+	return 0;
+}
+
+static ssize_t reg_write(struct file * file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	ptrace_request(task, PTRACE_SETREGSET, 0, 
+			(unsigned long) buf);
+	return 0;
+}
+
+static ssize_t ureg_write(struct file * file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	unsigned long *b = (unsigned long*) buf;
+	ptrace_request(task, PTRACE_POKEUSR, *ppos, 
+			*b);
+	return 0;
+}
+
+static const struct file_operations proc_reg_operations = {
+	.llseek		= generic_file_llseek,
+	.read		= reg_read,
+	.write		= reg_write,
+	.open		= reg_open,
+};
+
+static const struct file_operations proc_ureg_operations = {
+	.llseek		= generic_file_llseek,
+	.read		= ureg_read,
+	.write		= ureg_write,
+	.open		= ureg_open,
+};
+
+
 static int mem_open(struct inode* inode, struct file* file)
 {
 	file->private_data = (void*)((long)current->self_exec_id);
@@ -3365,6 +3457,8 @@ static const struct pid_entry tid_base_stuff[] = {
 #ifdef CONFIG_HARDWALL
 	INF("hardwall",   S_IRUGO, proc_pid_hardwall),
 #endif
+	REG("regs", S_IRUGO, proc_reg_operations),
+	REG("uregs", S_IRUGO, proc_ureg_operations),
 };
 
 static int proc_tid_base_readdir(struct file * filp,
