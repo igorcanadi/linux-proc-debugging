@@ -48,6 +48,8 @@
  */
 
 #include <asm/uaccess.h>
+#include <linux/uio.h>
+#include <linux/ptrace.h>
 
 #include <linux/errno.h>
 #include <linux/time.h>
@@ -826,6 +828,15 @@ static int reg_open(struct inode* inode, struct file* file)
 	return 0;
 }
 
+
+static int ureg_open(struct inode* inode, struct file* file)
+{
+	file->private_data = (void*)((long)current->self_exec_id);
+	/* OK to pass negative loff_t, we can catch out-of-range */
+	file->f_mode |= FMODE_UNSIGNED_OFFSET;
+	return 0;
+}
+
 static ssize_t mem_read(struct file * file, char __user * buf,
 			size_t count, loff_t *ppos)
 {
@@ -892,64 +903,31 @@ static ssize_t reg_read(struct file * file, char __user * buf,
 			size_t count, loff_t *ppos)
 {
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
-	char *page;
-	unsigned long src = *ppos;
-	int ret = -ESRCH;
-	struct mm_struct *mm;
-
-	if (!task)
-		goto out_no_task;
-
-	ret = -ENOMEM;
-	page = (char *)__get_free_page(GFP_TEMPORARY);
-	if (!page)
-		goto out;
-
-	mm = check_mem_permission(task);
-	ret = PTR_ERR(mm);
-	if (IS_ERR(mm))
-		goto out_free;
-
-	ret = -EIO;
- 
-	if (file->private_data != (void*)((long)current->self_exec_id))
-		goto out_put;
-
-	ret = 0;
- 
-	while (count > 0) {
-		int this_len, retval;
-
-		this_len = (count > PAGE_SIZE) ? PAGE_SIZE : count;
-		retval = access_remote_vm(mm, src, page, this_len, 0);
-		if (!retval) {
-			if (!ret)
-				ret = -EIO;
-			break;
-		}
-
-		if (copy_to_user(buf, page, retval)) {
-			ret = -EFAULT;
-			break;
-		}
- 
-		ret += retval;
-		src += retval;
-		buf += retval;
-		count -= retval;
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
 	}
-	*ppos = src;
-
-out_put:
-	mmput(mm);
-out_free:
-	free_page((unsigned long) page);
-out:
-	put_task_struct(task);
-out_no_task:
-	return ret;
+	ptrace_request(task, PTRACE_GETREGSET, 0, 
+			(unsigned long) buf);
+	return 0;
 }
 
+static ssize_t ureg_read(struct file * file, char __user * buf,
+			size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	
+	long word = arch_ptrace(task, PTRACE_PEEKUSR, (unsigned long) *ppos, 
+			NULL);
+	/* word may = -1, if so, this could be an error, but we cannot know */
+	long *p = (long*) buf;
+	*p = word;
+	return 0;
+}
 
 static ssize_t mem_write(struct file * file, const char __user *buf,
 			 size_t count, loff_t *ppos)
@@ -1013,81 +991,41 @@ out_no_task:
 static ssize_t reg_write(struct file * file, const char __user *buf,
 			 size_t count, loff_t *ppos)
 {
-	
-	int copied;
-	char *page;
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
-	unsigned long dst = *ppos;
-	struct mm_struct *mm;
-
-	copied = -ESRCH;
-	if (!task)
-		goto out_no_task;
-
-	copied = -ENOMEM;
-	page = (char *)__get_free_page(GFP_TEMPORARY);
-	if (!page)
-		goto out_task;
-
-	mm = check_mem_permission(task);
-	copied = PTR_ERR(mm);
-	if (IS_ERR(mm))
-		goto out_free;
-
-	copied = -EIO;
-	if (file->private_data != (void *)((long)current->self_exec_id))
-		goto out_mm;
-
-	copied = 0;
-	while (count > 0) {
-		int this_len, retval;
-
-		this_len = (count > PAGE_SIZE) ? PAGE_SIZE : count;
-		if (copy_from_user(page, buf, this_len)) {
-			copied = -EFAULT;
-			break;
-		}
-		retval = access_remote_vm(mm, dst, page, this_len, 1);
-		if (!retval) {
-			if (!copied)
-				copied = -EIO;
-			break;
-		}
-		copied += retval;
-		buf += retval;
-		dst += retval;
-		count -= retval;			
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
 	}
-	*ppos = dst;
-
-out_mm:
-	mmput(mm);
-out_free:
-	free_page((unsigned long) page);
-out_task:
-	put_task_struct(task);
-out_no_task:
-	return copied;
+	ptrace_request(task, PTRACE_SETREGSET, 0, 
+			(unsigned long) buf);
+	return 0;
 }
 
-
+static ssize_t ureg_write(struct file * file, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+	if (count < 0) /* SOME SIZE? */
+	{
+		return -EINVAL; /* Is this correct error? */
+	}
+	unsigned long *b = (unsigned long*) buf;
+	ptrace_request(task, PTRACE_POKEUSR, *ppos, 
+			*b);
+	return 0;
+}
 
 loff_t reg_lseek(struct file *file, loff_t offset, int orig)
 {
-	switch (orig) {
-	case 0:
-		file->f_pos = offset;
-		break;
-	case 1:
-		file->f_pos += offset;
-		break;
-	default:
-		return -EINVAL;
-	}
 	force_successful_syscall_return();
-	return file->f_pos;
+	return 0;
 }
 
+loff_t ureg_lseek(struct file *file, loff_t offset, int orig)
+{
+	force_successful_syscall_return();
+	return 0;
+}
 loff_t mem_lseek(struct file *file, loff_t offset, int orig)
 {
 	switch (orig) {
@@ -1116,6 +1054,13 @@ static const struct file_operations proc_reg_operations = {
 	.read		= reg_read,
 	.write		= reg_write,
 	.open		= reg_open,
+};
+
+static const struct file_operations proc_ureg_operations = {
+	.llseek		= ureg_lseek,
+	.read		= ureg_read,
+	.write		= ureg_write,
+	.open		= ureg_open,
 };
 
 static int ctl_stop(struct task_struct *task) 
@@ -3054,6 +2999,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	INF("hardwall",   S_IRUGO, proc_pid_hardwall),
 #endif
 	REG("regs", S_IRUGO, proc_reg_operations),
+	REG("uregs", S_IRUGO, proc_ureg_operations),
 };
 
 static int proc_tgid_base_readdir(struct file * filp,
