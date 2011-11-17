@@ -12,6 +12,7 @@
 #define PROCTRACE_EXEC          37
 #define PROCTRACE_VFORK_DONE    38
 #define PROCTRACE_EXIT          39
+#define PROCTRACE_ANY_STOP      40
 
 
 /* has the defines to get at the registers. */

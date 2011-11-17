@@ -1750,7 +1750,7 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 		/* wake up all the proctraces waiting for stop */
 		list_for_each(p, &tsk->sig_wait_list) {
 			sig_wait = list_entry(p, struct sig_wait_queue_struct, list);
-			if (sig_wait->sigmask == 0) {
+			if (sig_wait->sigmask & (1 << PROCTRACE_ANY_STOP)) {
 				printk("PROCTRACE budim frajera jer je child stao\n");
 				wake_up(&sig_wait->wait_queue);
 			}

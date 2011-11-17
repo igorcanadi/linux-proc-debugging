@@ -965,7 +965,16 @@ static int wait_waitsignal(struct task_struct *task, unsigned long long mask) {
 	DEFINE_WAIT(wait);
 	int retval = 0;
 
+	if (mask == 0)
+		mask = (1ULL << PROCTRACE_ANY_STOP);
+
 	printk("PROCTRACE waiting %d task with %d. mask %lld\n", task->pid, current->pid, mask);
+
+	// if we're waiting for stop, but the task is already stopped and we're
+	// not starting again
+	if ((mask & (1ULL << PROCTRACE_ANY_STOP)) && !(mask & (1ULL << PROCTRACE_START_TASK))
+			&& task_is_stopped(task))
+		goto done;
 
 	printk("Allocating new signal wait queue\n");
 	sig_wait = kmalloc(sizeof(struct sig_wait_queue_struct), GFP_KERNEL);
@@ -973,6 +982,7 @@ static int wait_waitsignal(struct task_struct *task, unsigned long long mask) {
 		retval = -ENOMEM;
 		goto done;
 	}
+
 	sig_wait->sigmask = mask;
 	init_waitqueue_head(&sig_wait->wait_queue);
 
@@ -1021,6 +1031,7 @@ static ssize_t wait_write(struct file *file, const char __user *buf,
 
 	wait_waitsignal(task, mask);
 
+out:
 	return count;
 }
 
