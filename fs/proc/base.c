@@ -1110,7 +1110,7 @@ done:
 	return retval;
 }
 
-static ssize_t wait_write(struct file *file, const char __user *buf,
+static ssize_t wait_write(struct file *file, const unsigned char __user *buf,
 			 size_t count, loff_t *ppos) {
 	unsigned long long mask = 0;
 	int i = 0;
