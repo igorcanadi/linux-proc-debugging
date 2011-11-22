@@ -811,24 +811,151 @@ static const struct file_operations proc_single_file_operations = {
 static ssize_t ureg_read(struct file * file, char __user * buf,
 			size_t count, loff_t *ppos)
 {
+	ssize_t retval;
 	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
 	
 	printk("Reading uregs on %d\n", *ppos);
 
-	long retval = arch_ptrace(task, PTRACE_PEEKUSR, 
+	retval = arch_ptrace(task, PTRACE_PEEKUSR,
 		(unsigned long) *ppos, (unsigned long) buf);
 	printk("Retval: %ld\n", retval);
 
 	if (retval < 0) 
 		return 0;
+
+	ppos += sizeof(unsigned long);
+
 	return sizeof(unsigned long);
+}
+
+static ssize_t ureg_write(struct file *file, const unsigned char __user *buf,
+			 size_t count, loff_t *ppos) {
+	ssize_t retval;
+	unsigned long word = 0;
+	int i;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	for (i = 0; i < count && i < sizeof(word); ++i) {
+		word |= buf[i] << (i*8);
+	}
+
+	printk("Writing uregs word %ld on %lld\n", word, *ppos);
+
+	retval = arch_ptrace(task, PTRACE_POKEUSR,
+			(unsigned long) *ppos, word);
+
+	// sucess
+	if (retval == 0)
+		return sizeof(word);
+
+	return retval;
 }
 
 static const struct file_operations proc_ureg_operations = {
 	.read		= ureg_read,
+	.write		= ureg_write,
 	.llseek		= generic_file_llseek,
 };
 
+static ssize_t regs_read(struct file * file, char __user * buf,
+			size_t count, loff_t *ppos)
+{
+	ssize_t retval;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	printk("Reading regs");
+
+	if (count < sizeof(struct user_regs_struct)) {
+		printk("Buffer too small");
+		return -EIO;
+	}
+
+	retval = arch_ptrace(task, PTRACE_GETREGS,
+			0, (unsigned long) buf);
+	printk("Retval: %ld\n", retval);
+
+	if (retval < 0)
+		return 0;
+
+	return sizeof(struct user_regs_struct);
+}
+
+static ssize_t regs_write(struct file *file, const unsigned char __user *buf,
+			 size_t count, loff_t *ppos) {
+	ssize_t retval;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	printk("Writing regs");
+
+	if (count < sizeof(struct user_regs_struct)) {
+		printk("Buffer too small");
+		return -EIO;
+	}
+
+	retval = arch_ptrace(task, PTRACE_SETREGS,
+			0, (unsigned long) buf);
+
+	// sucess
+	if (retval == 0)
+		return sizeof(struct user_regs_struct);
+
+	return retval;
+}
+
+static const struct file_operations proc_regs_operations = {
+	.read		= regs_read,
+	.write		= regs_write,
+};
+
+static ssize_t fpregs_read(struct file * file, char __user * buf,
+			size_t count, loff_t *ppos)
+{
+	ssize_t retval;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	printk("Reading fpregs");
+
+	if (count < sizeof(struct user_i387_struct)) {
+		printk("Buffer too small");
+		return -EIO;
+	}
+
+	retval = arch_ptrace(task, PTRACE_GETFPREGS,
+			0, (unsigned long) buf);
+	printk("Retval: %ld\n", retval);
+
+	if (retval < 0)
+		return 0;
+
+	return sizeof(struct user_i387_struct);
+}
+
+static ssize_t fpregs_write(struct file *file, const unsigned char __user *buf,
+			 size_t count, loff_t *ppos) {
+	ssize_t retval;
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	printk("Writing fpregs");
+
+	if (count < sizeof(struct user_i387_struct)) {
+		printk("Buffer too small");
+		return -EIO;
+	}
+
+	retval = arch_ptrace(task, PTRACE_SETFPREGS,
+			0, (unsigned long) buf);
+
+	// sucess
+	if (retval == 0)
+		return sizeof(struct user_i387_struct);
+
+	return retval;
+}
+
+static const struct file_operations proc_fpregs_operations = {
+	.read		= fpregs_read,
+	.write		= fpregs_write,
+};
 
 static int mem_open(struct inode* inode, struct file* file)
 {
@@ -3003,7 +3130,9 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("mem",        S_IRUSR|S_IWUSR, proc_mem_operations),
 	REG("ctl",        S_IWUSR, proc_ctl_operations),
 	REG("wait",       S_IWUSR, proc_wait_operations),
-	REG("uregs", 	  S_IRUGO, proc_ureg_operations),
+	REG("uregs", 	  S_IRUSR|S_IWUSR, proc_ureg_operations),
+	REG("regs", 	  S_IRUSR|S_IWUSR, proc_regs_operations),
+	REG("fpregs", 	  S_IRUSR|S_IWUSR, proc_fpregs_operations),
 	REG("eventmessage", S_IRUSR, proc_eventmessage_operations),
 	REG("last_siginfo", S_IRUSR, proc_last_siginfo_operations),
 	LNK("cwd",        proc_cwd_link),
