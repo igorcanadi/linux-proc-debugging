@@ -1145,13 +1145,8 @@ static int wait_waitsignal(struct task_struct *task, unsigned long long mask) {
 
 	if (mask & (1ULL << PROCTRACE_START_TASK)) {
 		// deliver signal to the child
-		// TODO: add semantics to disable delivery
-
-		if (task->last_siginfo) {
+		if (task->last_siginfo && !task->exit_code) {
 			task->exit_code = task->last_siginfo->si_signo;
-			printk("PROCTRACE sinal sent to the task: %d", task->exit_code);
-		} else {
-			printk("PROCTRACE no signal to send\n");
 		}
 
 		wake_up_process(task);
@@ -1287,8 +1282,27 @@ out_no_task:
 	return length;
 }
 
+/*
+ * On zero write, don't deliver signal to the child.
+ * On non-zero write, deliver the specified signal
+ */
+static ssize_t last_siginfo_write(struct file *file,
+		const unsigned char __user *buf, size_t count, loff_t *ppos) {
+
+	struct task_struct *task = get_proc_task(file->f_path.dentry->d_inode);
+
+	task->last_siginfo = NULL;
+	if (count > 1) {
+		task->exit_code = *buf;
+		return 1;
+	}
+
+	return 0;
+}
+
 static const struct file_operations proc_last_siginfo_operations = {
 	.read		= last_siginfo_read,
+	.write		= last_siginfo_write,
 };
 
 static ssize_t environ_read(struct file *file, char __user *buf,
