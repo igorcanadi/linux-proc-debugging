@@ -1144,6 +1144,16 @@ static int wait_waitsignal(struct task_struct *task, unsigned long long mask) {
 	}
 
 	if (mask & (1ULL << PROCTRACE_START_TASK)) {
+		// deliver signal to the child
+		// TODO: add semantics to disable delivery
+
+		if (task->last_siginfo) {
+			task->exit_code = task->last_siginfo->si_signo;
+			printk("PROCTRACE sinal sent to the task: %d", task->exit_code);
+		} else {
+			printk("PROCTRACE no signal to send\n");
+		}
+
 		wake_up_process(task);
 		// we don't need this flag anymore
 		mask ^= 1ULL << PROCTRACE_START_TASK;

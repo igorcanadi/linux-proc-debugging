@@ -2127,7 +2127,7 @@ static int proctrace_signal(int signr, siginfo_t *info) {
 
 		if (sig_wait->sigmask & (1ULL << signr)) {
 			printk("PROCTRACE Sigmask je dobar, budim debuggera\n");
-			/* ignore the signal */
+			/* ignor the signal for now */
 			retval = 0;
 			/* wake up the debugger */
 			wake_up(&sig_wait->wait_queue);
@@ -2135,7 +2135,6 @@ static int proctrace_signal(int signr, siginfo_t *info) {
 	}
 
 	if (!retval) {
-		printk("PROCTRACE Zaustavljam sebe i postavljam last_siginfo\n");
 		current->last_siginfo = info;
 		spin_unlock_irq(&current->sighand->siglock);
 		// put the process to sleep
@@ -2143,9 +2142,18 @@ static int proctrace_signal(int signr, siginfo_t *info) {
 		schedule();
 		set_current_state(TASK_RUNNING);
 		spin_lock_irq(&current->sighand->siglock);
-		current->last_siginfo = NULL;
-		printk("PROCTRACE Ubijam last_siginfo\n");
+		// we are back
+		retval = current->exit_code;
+
+		if (retval == 0) {
+			// it means ignore the signal
+			current->last_siginfo = NULL;
+			return retval;
+		}
 	}
+
+	// if we are here, we are sending the signal
+	// to the process
 
 	return retval;
 }
