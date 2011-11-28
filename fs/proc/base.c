@@ -3158,7 +3158,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("regs", 	  S_IRUSR|S_IWUSR, proc_regs_operations),
 	REG("fpregs", 	  S_IRUSR|S_IWUSR, proc_fpregs_operations),
 	REG("eventmessage", S_IRUSR, proc_eventmessage_operations),
-	REG("last_siginfo", S_IRUSR, proc_last_siginfo_operations),
+	REG("last_siginfo", S_IRUSR|S_IWUSR, proc_last_siginfo_operations),
 	LNK("cwd",        proc_cwd_link),
 	LNK("root",       proc_root_link),
 	LNK("exe",        proc_exe_link),
